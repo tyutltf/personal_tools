@@ -1,0 +1,9 @@
+/.vscode
+*.pyc
+
+*.xlsx
+*.pdf
+*.docx
+*.spec
+build/
+dist/
