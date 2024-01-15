@@ -1,8 +1,11 @@
 import os
+from multiprocessing import Lock, Pool
 
 import PySimpleGUI as sg
-from docx2pdf import convert
-from win32com.client import constants, gencache
+import win32com.client
+
+# 定义全局锁
+lock = Lock()
 
 
 def gui():
@@ -41,7 +44,7 @@ def gui():
             pdf_folder = values.get("pdf_folder")
             if word_folder and pdf_folder:
                 print("{0}正在将word转换为pdf{0}".format("*" * 10))
-                word_to_pdf(word_folder, pdf_folder)
+                start_task(word_folder, pdf_folder)
                 print("{0}转换完毕{0}".format("*" * 10))
             else:
                 print("请先选择文件夹")
@@ -49,41 +52,53 @@ def gui():
     window.close()
 
 
-# def word_to_pdf(word_folder, pdf_folder):
-#     """批量将word转为pdf"""
-#     # 将Word文档批量转换为PDF并指定输出目录
-#     convert(word_folder, pdf_folder)
+def initialize_word():
+    try:
+        return win32com.client.DispatchEx("Word.Application")
+    except Exception as e:
+        print(f"初始化Word应用程序失败：{str(e)}")
+        return None
 
 
-def word_to_pdf(word_folder, pdf_folder):
-    """
-    word转PDF
-    :wordPath word文件路径
-    :pdfPth:生成PDF文件路径
-    """
-    word = gencache.EnsureDispatch("Word.Application")
-    for word_file in os.listdir(word_folder):
-        if not word_file.startswith("~"):
-            word_path = os.path.join(word_folder, word_file)
-            pdf_file = os.path.splitext(word_file)[0] + ".pdf"
-            pdf_path = os.path.join(pdf_folder, pdf_file)
-            doc = word.Documents.Open(word_path, ReadOnly=1)
-            doc.ExportAsFixedFormat(
-                pdf_path,
-                constants.wdExportFormatPDF,
-                Item=constants.wdExportDocumentWithMarkup,
-                CreateBookmarks=constants.wdExportCreateHeadingBookmarks,
-            )
-            word.Quit(constants.wdDoNotSaveChanges)
+def word_to_pdf(args):
+    word_path, pdf_path = args
+    with lock:
+        word = initialize_word()
+        try:
+            # 打开 Word 文档
+            doc = word.Documents.Open(word_path)
+            # 保存为 PDF
+            doc.SaveAs(pdf_path)
+            # 关闭 Word 文档
+            doc.Close()
+        except Exception as e:
+            print(f"转换文件时发生错误：{str(e)}")
+        finally:
+            if word is not None:
+                word.Quit()
 
 
-def main():
-    """主程序"""
-    gui()
+def start_task(word_folder, pdf_folder):
+    with Pool() as pool:
+        args_list = []
+        for word_file in os.listdir(word_folder):
+            if word_file.endswith(".docx") or word_file.endswith(".doc"):
+                word_path = os.path.join(word_folder, word_file)
+                pdf_file = os.path.splitext(word_file)[0] + ".pdf"
+                pdf_path = os.path.join(pdf_folder, pdf_file)
+                args_list.append((word_path, pdf_path))
+        pool.map(word_to_pdf, args_list)
+
+    print("转换完成！PDF文件保存在:", pdf_folder)
+
+
+# def main():
+#     """主程序"""
+#     gui()
 
 
 if __name__ == "__main__":
     # main()
-    word_folder = r"C:\Users\lenovo\Desktop\word测试文件夹"
+    word_folder = r"C:\Users\lenovo\Desktop\word文件夹"
     pdf_folder = r"C:\Users\lenovo\Desktop\pdf文件夹"
-    word_to_pdf(word_folder, pdf_folder)
+    start_task(word_folder, pdf_folder)
